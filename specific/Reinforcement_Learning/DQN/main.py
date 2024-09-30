@@ -24,7 +24,7 @@ hypers={
 episode_durations = []
 
 def main():
-    env = gym.make("CartPole-v1")# ,render_mode='human'
+    # env = gym.make("CartPole-v1")# ,render_mode='human'
     env = gym.make("CartPole-v1",render_mode='human')
     state, info = env.reset()
 

@@ -4,6 +4,8 @@ import torchvision
 from torchvision.models.detection.faster_rcnn import RegionProposalNetwork
 
 
+RegionProposalNetwork
+
 # a = torch.randint(0, 4, (10, 4))
 # print(a)
 # for i in a:

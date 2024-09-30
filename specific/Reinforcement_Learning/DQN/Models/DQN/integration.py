@@ -10,7 +10,7 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 class integrated_model:
-    def __init__(self,policy_net,target_net,hypers) -> None:
+    def __init__(self,policy_net,target_net,hypers,DQN=False) -> None:
         if hypers is None:
             self.hypers=dict(
             {
@@ -24,6 +24,7 @@ class integrated_model:
                 "LR":1e-4,
             })
 
+        self.DQN = DQN
         self.policy_net = policy_net
         self.target_net = target_net
         self.target_net.load_state_dict(policy_net.state_dict())
@@ -85,8 +86,18 @@ class integrated_model:
         # This is merged based on the mask, such that we'll have either the expected
         # state value or 0 in case the state was final.
         next_state_values = torch.zeros(self.hypers["BATCH_SIZE"], device=self.hypers["DEVICE"])
-        with torch.no_grad():
-            next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1).values
+
+        if self.DQN:
+            with torch.no_grad():
+                next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1).values
+        else:
+            with torch.no_grad():
+                # 用在线网络选择下一个动作
+                next_actions = self.policy_net(non_final_next_states).max(1).indices
+                # 用目标网络评估该动作的Q值
+                next_state_values[non_final_mask] = self.target_net(non_final_next_states).gather(1, next_actions.unsqueeze(1)).squeeze(1)
+
+        
         # Compute the expected Q values
         expected_state_action_values = (next_state_values * self.hypers["GAMMA"]) + reward_batch
 
