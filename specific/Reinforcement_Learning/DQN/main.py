@@ -1,5 +1,6 @@
 import gymnasium as gym
-from Models.DQN.vanilla_policy import model
+# from Models.DQN.vanilla_policy import model
+from Models.DQN.Dueling_policy import model
 from Models.DQN.integration import integrated_model
 import torch
 from itertools import count
@@ -12,7 +13,7 @@ DEVICE = torch.device(
 EPISODES = 1000
 hypers={
         "CAPACITY":1024,
-        "BATCH_SIZE":128,
+        "BATCH_SIZE":10,
         "GAMMA":0.99,
         "EPS_START":0.9,
         "EPS_END":0.05,

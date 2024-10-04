@@ -1,5 +1,6 @@
 import torch
 from Update_modules.off_policy.memory.ExperienceReplay import ReplayMemory
+from Update_modules.off_policy.memory.ST import SumTree
 from torch import nn
 import random
 import math
@@ -10,7 +11,7 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 class integrated_model:
-    def __init__(self,policy_net,target_net,hypers,DQN=False) -> None:
+    def __init__(self,policy_net,target_net,hypers,DQN=False,PER=True) -> None:
         if hypers is None:
             self.hypers=dict(
             {
@@ -24,14 +25,24 @@ class integrated_model:
                 "LR":1e-4,
             })
 
-        self.DQN = DQN
-        self.policy_net = policy_net
-        self.target_net = target_net
-        self.target_net.load_state_dict(policy_net.state_dict())
-        self.hypers = hypers
-        self.steps_done = 0
+        self.DQN = DQN # 网络结构
+        self.PER = PER
+        self.policy_net = policy_net # 在线网络 或 策略网络
+        self.target_net = target_net # 目标网络 或 评价网络
+        self.target_net.load_state_dict(policy_net.state_dict()) # 权重复制 保证在初始化后权重一样
+        self.hypers = hypers # 超参
+        self.steps_done = 0 # 每个轮回里的步数
+        # 权重更新函数
         self.optimizer = torch.optim.AdamW(policy_net.parameters(),lr=float(self.hypers["LR"]),amsgrad = True)
-        self.memory_pool = ReplayMemory(hypers["CAPACITY"])
+
+        #是否使用PER
+        if PER:
+            self.memory_pool = SumTree(hypers["CAPACITY"])
+            self.epsilon = 1e-5
+        else:
+            self.memory_pool = ReplayMemory(hypers["CAPACITY"])
+        
+        # 每轮回的训练结果
         self.episode_durations = []
 
     def train(self,observation,action,reward,terminated): 
@@ -42,16 +53,23 @@ class integrated_model:
         else:
             next_state = torch.tensor(observation,device=self.hypers["DEVICE"]).unsqueeze(0)
 
-        self.memory_pool.push(self.state,action,next_state,reward)
-
+        # 记录动作，状态，下个状态与奖赏的关系到经验池内
+        if self.PER:
+            self.memory_pool.push(priority=self.memory_pool.total_priority()+1,data=Transition(self.state,action,next_state,reward))
+        else:
+            self.memory_pool.push(self.state,action,next_state,reward)
+            
         self.state = next_state
 
+        # 优化权重
         self.optimize_model()
 
-        # Soft update of the target network's weights
+        # 软更新目标网络权重，硬更新为直接复制没有tau
         # θ′ ← τ θ + (1 −τ )θ′
+        # 获取权重
         target_net_state_dict = self.target_net.state_dict()
         policy_net_state_dict = self.policy_net.state_dict()
+        # 更新权重
         for key in policy_net_state_dict:
             target_net_state_dict[key] = policy_net_state_dict[key]*self.hypers["TAU"] + target_net_state_dict[key]*(1-self.hypers["TAU"])
         self.target_net.load_state_dict(target_net_state_dict)
@@ -59,12 +77,28 @@ class integrated_model:
     def optimize_model(self):
         if len(self.memory_pool) < self.hypers["BATCH_SIZE"]:
             return
-        transitions = self.memory_pool.sample(self.hypers["BATCH_SIZE"])
-        # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
-        # detailed explanation). This converts batch-array of Transitions
-        # to Transition of batch-arrays.
-        batch = Transition(*zip(*transitions))
+        
+        if self.PER:
+            segment = self.memory_pool.total_priority() / self.hypers["BATCH_SIZE"]  # 将总优先级划分为 batch_size 段
+            batch = [] # data batch
+            leaf_index_batch = [] # 子叶节点
+            tree_batch = [] # 被抽到的索引
+            for i in range(self.hypers["BATCH_SIZE"]):
+                sample = random.uniform(segment * i, segment * (i + 1))  # 从每个段中均匀采样
+                SumTree_batch = self.memory_pool.get_leaf(sample)
+                batch.append(SumTree_batch[2])  # 从 Sum Tree 中采样
+                tree_batch.append(SumTree_batch[1])
+                leaf_index_batch.append(SumTree_batch[0])
+                # print(sample,SumTree_batch[1],tree_batch[0])
+            batch = Transition(*zip(*batch))
+        else:
+            transitions = self.memory_pool.sample(self.hypers["BATCH_SIZE"])
 
+            # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
+            # detailed explanation). This converts batch-array of Transitions
+            # to Transition of batch-arrays.
+            batch = Transition(*zip(*transitions))
+        
         # Compute a mask of non-final states and concatenate the batch elements
         # (a final state would've been the one after which simulation ended)
         non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
@@ -101,9 +135,19 @@ class integrated_model:
         # Compute the expected Q values
         expected_state_action_values = (next_state_values * self.hypers["GAMMA"]) + reward_batch
 
-        # Compute Huber loss
+        # 计算 Huber损失，时序差分
         criterion = nn.SmoothL1Loss()
         loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+
+        if self.PER:
+            # 基于误差量决定优先级
+            td_errors = torch.abs(state_action_values - expected_state_action_values.unsqueeze(1))
+            # priority = abs(loss) + self.epsilon
+            for i in range(self.hypers["BATCH_SIZE"]):
+                # 假设 sampled_indices 是 Sum Tree 中采样的经验索引
+                # 这里更新第 i 个样本的优先级，通常加上一个 epsilon 防止优先级为零
+                new_priority = td_errors[i].item() + self.epsilon
+                self.memory_pool.update(leaf_index_batch[i], new_priority)
 
         # Optimize the model
         self.optimizer.zero_grad()
