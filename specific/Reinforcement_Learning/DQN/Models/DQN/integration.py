@@ -1,6 +1,6 @@
 import torch
 from Update_modules.off_policy.memory.ExperienceReplay import ReplayMemory
-from Update_modules.off_policy.memory.ST import SumTree
+from Update_modules.off_policy.memory.PrioritizedExperienceReplay import SumTree
 from torch import nn
 import random
 import math
@@ -11,7 +11,7 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 class integrated_model:
-    def __init__(self,policy_net,target_net,hypers,DQN=False,PER=True) -> None:
+    def __init__(self,policy_net,target_net,hypers) -> None:
         if hypers is None:
             self.hypers=dict(
             {
@@ -23,12 +23,16 @@ class integrated_model:
                 "EPS_DECAY":1000,
                 "TAU":0.005,
                 "LR":1e-4,
+                "Noisy":False,
+                "PER":False,
+                "if_DDQN":True
             })
 
-        self.DQN = DQN # 网络结构
-        self.PER = PER
+        # self.if_DDQN = self.hypers["if_DDQN"] # 网络结构
+        # self.PER = self.hypers["PER"]
         self.policy_net = policy_net # 在线网络 或 策略网络
         self.target_net = target_net # 目标网络 或 评价网络
+
         self.target_net.load_state_dict(policy_net.state_dict()) # 权重复制 保证在初始化后权重一样
         self.hypers = hypers # 超参
         self.steps_done = 0 # 每个轮回里的步数
@@ -36,7 +40,7 @@ class integrated_model:
         self.optimizer = torch.optim.AdamW(policy_net.parameters(),lr=float(self.hypers["LR"]),amsgrad = True)
 
         #是否使用PER
-        if PER:
+        if self.hypers["PER"]:
             self.memory_pool = SumTree(hypers["CAPACITY"])
             self.epsilon = 1e-5
         else:
@@ -49,12 +53,15 @@ class integrated_model:
         reward = torch.tensor([reward],device=self.hypers["DEVICE"])
 
         if terminated:
-            next_state = None
+            if self.hypers['PER']:
+                next_state = torch.zeros_like(torch.tensor(observation),device=self.hypers["DEVICE"]).unsqueeze(0)
+            else:
+                next_state = None
         else:
             next_state = torch.tensor(observation,device=self.hypers["DEVICE"]).unsqueeze(0)
 
         # 记录动作，状态，下个状态与奖赏的关系到经验池内
-        if self.PER:
+        if self.hypers["PER"]:
             self.memory_pool.push(priority=self.memory_pool.total_priority()+1,data=Transition(self.state,action,next_state,reward))
         else:
             self.memory_pool.push(self.state,action,next_state,reward)
@@ -78,7 +85,7 @@ class integrated_model:
         if len(self.memory_pool) < self.hypers["BATCH_SIZE"]:
             return
         
-        if self.PER:
+        if self.hypers["PER"]:
             segment = self.memory_pool.total_priority() / self.hypers["BATCH_SIZE"]  # 将总优先级划分为 batch_size 段
             batch = [] # data batch
             leaf_index_batch = [] # 子叶节点
@@ -105,6 +112,7 @@ class integrated_model:
                                             batch.next_state)), device=self.hypers["DEVICE"], dtype=torch.bool)
         non_final_next_states = torch.cat([s for s in batch.next_state
                                                     if s is not None])
+
         state_batch = torch.cat(batch.state)
         action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)
@@ -121,16 +129,15 @@ class integrated_model:
         # state value or 0 in case the state was final.
         next_state_values = torch.zeros(self.hypers["BATCH_SIZE"], device=self.hypers["DEVICE"])
 
-        if self.DQN:
-            with torch.no_grad():
-                next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1).values
-        else:
+        if self.hypers["if_DDQN"]:
             with torch.no_grad():
                 # 用在线网络选择下一个动作
                 next_actions = self.policy_net(non_final_next_states).max(1).indices
                 # 用目标网络评估该动作的Q值
                 next_state_values[non_final_mask] = self.target_net(non_final_next_states).gather(1, next_actions.unsqueeze(1)).squeeze(1)
-
+        else:
+            with torch.no_grad():
+                next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1).values
         
         # Compute the expected Q values
         expected_state_action_values = (next_state_values * self.hypers["GAMMA"]) + reward_batch
@@ -139,7 +146,7 @@ class integrated_model:
         criterion = nn.SmoothL1Loss()
         loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
 
-        if self.PER:
+        if self.hypers["PER"]:
             # 基于误差量决定优先级
             td_errors = torch.abs(state_action_values - expected_state_action_values.unsqueeze(1))
             # priority = abs(loss) + self.epsilon
@@ -157,11 +164,15 @@ class integrated_model:
         self.optimizer.step()
 
     def select_action(self):
+        self.steps_done += 1
+        if self.hypers["Noisy"]:
+             with torch.no_grad():
+                return self.policy_net(self.state).max(1).indices.view(1, 1)
+
         # global steps_done
         sample = random.random()
         eps_threshold = self.hypers["EPS_END"] + (self.hypers["EPS_START"] - self.hypers["EPS_END"]) * \
             math.exp(-1. * self.steps_done / self.hypers["EPS_DECAY"])
-        self.steps_done += 1
         if sample > eps_threshold:
             with torch.no_grad():
                 # t.max(1) will return the largest column value of each row.
