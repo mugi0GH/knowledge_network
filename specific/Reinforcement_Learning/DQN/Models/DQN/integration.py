@@ -93,6 +93,9 @@ class integrated_model:
             for i in range(self.hypers["BATCH_SIZE"]):
                 sample = random.uniform(segment * i, segment * (i + 1))  # 从每个段中均匀采样
                 SumTree_batch = self.memory_pool.get_leaf(sample)
+                if type(SumTree_batch[2]) is int:
+                    print("Bug dectated",SumTree_batch[2])
+                    exit()
                 batch.append(SumTree_batch[2])  # 从 Sum Tree 中采样
                 tree_batch.append(SumTree_batch[1])
                 leaf_index_batch.append(SumTree_batch[0])

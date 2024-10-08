@@ -1,4 +1,5 @@
 import gymnasium as gym
+import highway_env
 # from Models.DQN.vanilla_policy import model
 from Models.DQN.Dueling_policy import model
 from Models.DQN.integration import integrated_model
@@ -30,8 +31,8 @@ episode_durations = []
 total_rewards = []
 
 def main():
-    env = gym.make("LunarLander-v2")
-    # env = gym.make("CartPole-v1",render_mode="rgb_array")
+    # env = gym.make('highway-v0', render_mode='human')
+    env = gym.make("CartPole-v1",render_mode="rgb_array")
     # env = gym.make("LunarLander-v2",render_mode='human')
     state, info = env.reset()
 
@@ -48,7 +49,6 @@ def main():
         for step in count():
             # env.action_space.sample()
             action = dqn.select_action()
-
             if action is None:
                 action = torch.tensor([[env.action_space.sample()]], device=hypers["DEVICE"], dtype=torch.long)
 
