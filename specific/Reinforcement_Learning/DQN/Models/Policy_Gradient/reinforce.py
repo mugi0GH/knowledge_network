@@ -2,32 +2,30 @@ import torch
 from torch import nn
 import numpy as np
 
-class model(nn.Module):
-    def __init__(self,input_size,output_size) -> None:
+class actor(nn.Module):
+    def __init__(self,state_dim,action_dim,hypers) -> None:
         super().__init__()
-        self.lr = 0.001
-        self.theta = 0
-
+        # self.theta = 0
+        self.hypers = hypers
         self.backbone = nn.Sequential(
-            nn.Linear(input_size.shape[0],512),
+            nn.Linear(state_dim,512),
             nn.ReLU(),
-            nn.Linear(512,output_size)
+            nn.Linear(512,action_dim)
         )
         self.output = nn.Softmax()
 
-        self.optimizer = torch.optim.AdamW(self.parameters(), lr=1e-4, weight_decay=1e-2)
+        self.optimizer = torch.optim.AdamW(self.parameters(), lr=self.hypers['LR'], weight_decay=1e-2)
     def forward(self,x):
+        x = torch.tensor(x).to(self.hypers['DEVICE'])
         x = self.backbone(x)
         x = self.output(x)
         return x
     
-    def train(self,trajectories,returns):
+    def train(self,log_probs,returns):
         # 计算损失：log概率 * 回报的负值
-        loss = []
-        for log_prob, G in zip(trajectories, returns):
-            loss.append(-log_prob * G)
-
-        loss = torch.stack(loss).sum()
+        loss = 0
+        for log_prob, G in zip(log_probs, returns):
+            loss += -log_prob * G  # 目标函数的负梯度
 
         # 进行优化
         self.optimizer.zero_grad()

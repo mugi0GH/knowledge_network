@@ -4,11 +4,11 @@ from torch import nn
 from torchrl.modules.models.exploration import NoisyLinear
 
 class model(nn.Module):
-    def __init__(self,input_size,output_size,noisy_net=False,role = '') -> None:
+    def __init__(self,state_dim,action_dim,noisy_net=False,role = '') -> None:
         super().__init__()
 
         self.backbone = nn.Sequential(
-            nn.Linear(input_size.shape[0],512),
+            nn.Linear(state_dim,512),
             nn.ReLU(),
             nn.Linear(512,512),
             nn.ReLU()
@@ -33,7 +33,7 @@ class model(nn.Module):
             self.advantages = nn.Sequential(
                 nn.Linear(512,256),
                 nn.ReLU(),
-                nn.Linear(256,output_size) # 输出与动作数目相同的优势值
+                nn.Linear(256,action_dim) # 输出与动作数目相同的优势值
                 )
             
         if role == 'target':

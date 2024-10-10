@@ -35,9 +35,11 @@ def main():
     env = gym.make("CartPole-v1",render_mode="rgb_array")
     # env = gym.make("LunarLander-v2",render_mode='human')
     state, info = env.reset()
+    state_dim = len(state)
+    action_dim = env.action_space.n
 
-    policy_net = model(input_size = state,output_size = env.action_space.n,noisy_net = hypers['Noisy'],role = 'policy').to(DEVICE)
-    target_net = model(input_size = state,output_size = env.action_space.n,noisy_net = hypers['Noisy'],role = 'target').to(DEVICE)
+    policy_net = model(input_size = state_dim,output_size = action_dim,noisy_net = hypers['Noisy'],role = 'policy').to(DEVICE)
+    target_net = model(input_size = state_dim,output_size = action_dim,noisy_net = hypers['Noisy'],role = 'target').to(DEVICE)
 
     dqn = integrated_model(policy_net,target_net,hypers)
 
