@@ -1,6 +1,6 @@
 import torch
-from Update_modules.off_policy.memory.ExperienceReplay import ReplayMemory
-from Update_modules.off_policy.memory.PrioritizedExperienceReplay import SumTree
+from Update_modules.memory.ExperienceReplay import ReplayMemory
+from Update_modules.memory.PrioritizedExperienceReplay import SumTree
 from torch import nn
 import random
 import math
@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 from collections import namedtuple
 Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
+                        ('state', 'action', 'next_state', 'reward','done'))
 
 class integrated_model:
     def __init__(self,policy_net,target_net,hypers) -> None:
@@ -49,7 +49,7 @@ class integrated_model:
         # 每轮回的训练结果
         self.episode_durations = []
 
-    def train(self,observation,action,reward,terminated): 
+    def train(self,observation,action,reward,terminated,done): 
         reward = torch.tensor([reward],device=self.hypers["DEVICE"])
 
         if terminated:
@@ -64,7 +64,7 @@ class integrated_model:
         if self.hypers["PER"]:
             self.memory_pool.push(priority=self.memory_pool.total_priority()+1,data=Transition(self.state,action,next_state,reward))
         else:
-            self.memory_pool.push(self.state,action,next_state,reward)
+            self.memory_pool.push(self.state,action,next_state,reward,done)
             
         self.state = next_state
 

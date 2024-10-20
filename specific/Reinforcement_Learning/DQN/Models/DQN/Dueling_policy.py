@@ -2,6 +2,7 @@ import torch
 from torch import nn
 # from Structure_modules.noisy_linear import NoisyLinear
 from torchrl.modules.models.exploration import NoisyLinear
+from Update_modules.initialization.weight_init import he_init_weights
 
 class model(nn.Module):
     def __init__(self,state_dim,action_dim,noisy_net=False,role = '') -> None:
@@ -22,7 +23,7 @@ class model(nn.Module):
             self.advantages = nn.Sequential(
                 NoisyLinear(512,256),
                 # nn.ReLU(),
-                NoisyLinear(256,output_size), # 输出与动作数目相同的优势值
+                NoisyLinear(256,action_dim), # 输出与动作数目相同的优势值
                 )
         else:
             self.state_value = nn.Sequential(
@@ -36,6 +37,8 @@ class model(nn.Module):
                 nn.Linear(256,action_dim) # 输出与动作数目相同的优势值
                 )
             
+        he_init_weights(self)
+        
         if role == 'target':
             for module in self.modules(): 
                 module.training = False

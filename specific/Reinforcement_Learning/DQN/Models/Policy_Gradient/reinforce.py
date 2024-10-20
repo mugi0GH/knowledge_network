@@ -1,3 +1,4 @@
+from Update_modules.initialization.weight_init import he_init_weights
 import torch
 from torch import nn
 import numpy as np
@@ -12,11 +13,19 @@ class actor(nn.Module):
             nn.ReLU(),
             nn.Linear(512,action_dim)
         )
-        self.output = nn.Softmax()
+        self.output = nn.Softmax(dim=-1)
 
         self.optimizer = torch.optim.AdamW(self.parameters(), lr=self.hypers['LR'], weight_decay=1e-2)
+
+        # 调用初始化函数
+        he_init_weights(self)
+
     def forward(self,x):
-        x = torch.tensor(x).to(self.hypers['DEVICE'])
+        if not isinstance(x, torch.Tensor):
+            x = torch.tensor(x).to(self.hypers['DEVICE'], dtype=torch.float32)
+        else:
+            x = x.to(self.hypers['DEVICE'], dtype=torch.float32)
+        # x = torch.tensor(x).to(self.hypers['DEVICE'])
         x = self.backbone(x)
         x = self.output(x)
         return x

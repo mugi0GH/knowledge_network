@@ -23,7 +23,7 @@ hypers=dict(
     "TAU":0.005,
     "LR":1e-4,
     "Noisy":False,
-    "PER":True,
+    "PER":False,
     "if_DDQN":True,
     "DEVICE":DEVICE
 })
@@ -38,8 +38,8 @@ def main():
     state_dim = len(state)
     action_dim = env.action_space.n
 
-    policy_net = model(input_size = state_dim,output_size = action_dim,noisy_net = hypers['Noisy'],role = 'policy').to(DEVICE)
-    target_net = model(input_size = state_dim,output_size = action_dim,noisy_net = hypers['Noisy'],role = 'target').to(DEVICE)
+    policy_net = model(state_dim = state_dim,action_dim = action_dim,noisy_net = hypers['Noisy'],role = 'policy').to(DEVICE)
+    target_net = model(state_dim = state_dim,action_dim = action_dim,noisy_net = hypers['Noisy'],role = 'target').to(DEVICE)
 
     dqn = integrated_model(policy_net,target_net,hypers)
 
@@ -48,6 +48,7 @@ def main():
         state = torch.tensor(state, dtype=torch.float32, device=DEVICE).unsqueeze(0)
         dqn.state = state
         rewards_ep = 0
+        done = False
         for step in count():
             # env.action_space.sample()
             action = dqn.select_action()
@@ -56,9 +57,10 @@ def main():
 
             observation, reward, terminated, truncated, info = env.step(int(action))
             rewards_ep+=reward
-            
-            dqn.train(observation,action,reward,terminated)
             if terminated or truncated:
+                done = True
+            dqn.train(observation,action,reward,terminated,done)
+            if done:
                 # episode_durations.append(step + 1)
                 # plot_durations(episode_durations)
                 total_rewards.append(rewards_ep)
