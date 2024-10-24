@@ -6,8 +6,8 @@ import numpy as np
 
 class integrated_model():
     def __init__(self,actor,critic=None,hypers=None) -> None:
-        self.actor_oldPolicy = actor.to(hypers["DEVICE"])
-        self.actor = copy.deepcopy(actor)
+        self.actor = actor.to(hypers["DEVICE"])
+        self.actor_oldPolicy = copy.deepcopy(self.actor)
         self.critic = critic.to(hypers["DEVICE"])
         self.hypers = hypers
         # self.batch = ReplayMemory(hypers["BATCH"])
@@ -29,22 +29,50 @@ class integrated_model():
         action = action_dist.sample()  # 采样行为
 
         # 记录每个行为的log概率到batch中
-        log_prob = action_dist.log_prob(action)
-        self.batch.log_probs[self.batch.ele_num] = log_prob
+        # log_prob = action_dist.log_prob(action)
+        # self.batch.log_probs[self.batch.ele_num] = log_prob
 
         return action.item()  # 返回行为
     
     def get_actorGrad(self):
+        # 重新计算当前策略下的 log_probs
+        probs = self.actor(self.batch.states)
+        action_dist = torch.distributions.Categorical(probs)
+        log_probs = action_dist.log_prob(self.batch.actions)
+        
         # actor_loss = log(actor策略分布) * 优势函数值
-        actor_loss = (-self.batch.log_probs * self.batch.td_errors.detach()).mean()
-        # 目标函数的近似
-        actor_loss = actor_loss / self.hypers['BATCH'] # 是为了对损失值进行归一化，这样在 backward() 中计算梯度时，其更新步长不会过大。如果批量较小，这样的处理是有助于梯度稳定的。
-        self.actor.optimizer.zero_grad() # 清空梯度
-        actor_loss.backward(retain_graph=True) # 计算新的梯度
+        # 计算损失
+        advantages = (self.batch.td_errors - self.batch.td_errors.mean()) / (self.batch.td_errors.std() + 1e-8)
+        actor_loss = -(log_probs * advantages.detach()).mean()
 
-        flat_params = torch.cat([p.view(-1) for p in self.actor.parameters()])
-        return flat_params
-    
+        # actor_loss = -(log_probs * self.batch.td_errors.detach()).mean()
+
+        # 将熵添加到actor损失中：添加熵项可以鼓励策略维持探索：
+        entropy = action_dist.entropy().mean()
+        actor_loss -= 0.01 * entropy  # 熵系数可以调整
+
+        # 对优势函数进行归一化（可选）
+        # advantages = self.batch.td_errors
+        # advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        
+        # 计算损失：log_prob * 优势函数
+        # actor_loss = -(log_probs * advantages.detach()).mean()
+        print(f"actor_loss: {actor_loss.item()}")
+        
+        # 清空梯度
+        self.actor.optimizer.zero_grad()  # 如果未定义 optimizer，会报错
+        # for param in self.actor.parameters():
+        #     if param.grad is not None:
+        #         param.grad.detach_()
+        #         param.grad.zero_()
+        
+        # 计算新的梯度
+        actor_loss.backward(retain_graph=False)
+        
+        # 提取梯度并展平
+        flat_grads = torch.cat([p.grad.view(-1) for p in self.actor.parameters()])
+        return flat_grads
+
     def compute_kl_divergence(self):
         with torch.no_grad():
             old_probs = self.actor_oldPolicy(self.batch.states)  # 旧策略的概率分布
@@ -93,8 +121,13 @@ class integrated_model():
             # Step 1: 计算费舍尔矩阵-向量积 Fp, fvp_fn 是 Fisher 矩阵与向量的乘积函数
             fvp = self.fisher_vector_product(p)
             
+            fvp_dot_p = torch.dot(p, fvp)
+            if fvp_dot_p == 0:
+                fvp_dot_p = 1e-8  # 避免除零
+
             # Step 2: 计算步长系数 alpha，确保步长在当前搜索方向上是合理的
-            alpha = r_dot_old / torch.dot(p, fvp)
+            alpha = r_dot_old / fvp_dot_p
+            
             # 防止步长计算不稳定，限制 fvp_dot_p 不为负或过小
             if alpha <= 0:
                 alpha = max(alpha, 1e-10)
@@ -111,6 +144,7 @@ class integrated_model():
             r_dot_new = torch.dot(r, r)
             
             # 如果残差足够小，说明已经逼近解，可以提前停止迭代
+            # print('tol',r_dot_new,'\t',tol)
             if r_dot_new < tol:
                 break
 
@@ -146,22 +180,22 @@ class integrated_model():
         kl = self.compute_kl_divergence()
 
         params = list(self.actor.parameters())  # 获取"新"策略的参数
-        kl_grad = torch.autograd.grad(kl, params, create_graph=True, retain_graph= True)
+        # kl_grad = torch.autograd.grad(kl, params, create_graph=True, retain_graph= True)
         # 在 fisher_vector_product 中计算 KL 散度的梯度时，可能会遇到某些参数的梯度为 None。这是因为在计算梯度的过程中，可能有些参数未参与计算图。你可以通过设置 allow_unused=True 来解决这个问题，避免错误发生。
-        # kl_grad = torch.autograd.grad(kl, params, create_graph=True, retain_graph=True, allow_unused=True)
+        kl_grad = torch.autograd.grad(kl, params, create_graph=True, retain_graph=True, allow_unused=True)
         
-        # Step 2: 将梯度与向量 v 做内积
-        kl_grad_vector = torch.cat([g.view(-1) for g in kl_grad])  # 将梯度展平为向量
+        # Step 2: 将梯度与向量 v 做内积, 在提取梯度时，跳过为 None 的梯度。
+        kl_grad_vector = torch.cat([g.view(-1) for g in kl_grad if g is not None])  # 将梯度展平为向量
         kl_grad_v = torch.dot(kl_grad_vector, v)  # 计算内积
         
         # Step 3: 对内积结果再次求梯度，得到 Fv (Hessian-Vector Product)
-        fvp = torch.autograd.grad(kl_grad_v, params, retain_graph= True)
+        fvp = torch.autograd.grad(kl_grad_v, params, retain_graph= True,allow_unused=True)
         
         # 将结果拼接为一个向量
         fvp = torch.cat([g.contiguous().view(-1) for g in fvp])
 
         # 加入阻尼因子，防止数值不稳定
-        damping = 0.1
+        damping = 1e-5
         fvp = fvp + damping * v.clone()
         # 显式计算
         """
@@ -245,6 +279,7 @@ class integrated_model():
             kl = self.compute_kl_divergence()
 
             # 检查 KL 散度是否满足约束
+            # print('kl',kl,'\t',max_kl)
             if kl <= max_kl:  # 如果 KL 散度满足约束，退出线性搜索
                 return True
             
@@ -275,27 +310,39 @@ class integrated_model():
         if self.batch.__len__()< self.hypers['BATCH']-1:
             
             # 1. Critic 计算 TD 误差 （优势函数）
-            td_error = self.critic.optimize(state, next_state, reward, done) # TD 误差 Gt - Vt
+            # td_error = self.critic.optimize(state, next_state, reward, done) # TD 误差 Gt - Vt
 
-            self.batch.push(state, action, next_state, reward,done,td_error) # 存入batch中
+            # self.batch.push(state, action, next_state, reward,done,td_error) # 存入batch中
+            self.batch.push(state, action, next_state, reward,done) # 存入batch中
             return
-        
-        td_error = self.critic.optimize(state, next_state, reward, done)
-        self.batch.push(state, action, next_state, reward,done,td_error)
-    
-        # actor有 新权重, 旧策略不变。
-        grads = self.get_actorGrad() # g
 
-        # 计算方向 v
-        v = self.conjugate_gradient(g=grads)
+        self.batch.push(state, action, next_state, reward,done) # 存入batch中
 
-        # KL 散度, 若散度为0，说明权重完全一致。
-        # 线性搜索 查找 步长
-        success = self.line_search_with_kl(v)
-        if success:
-            print("Line search success.")
-        else:
-            print("Line search failed, reverting to old parameters.")
+        # 优化 Critic
+        self.batch.td_errors = self.critic.optimize(self.batch.states, self.batch.next_states, self.batch.rewards, self.batch.dones) # G_t
+
+        # 使用运行平均值和标准差来归一化奖励。这将有助于actor-critic网络稳定学习。
+        self.batch.rewards = (self.batch.rewards - self.batch.rewards.mean()) / (self.batch.rewards.std() + 1e-8)
+
+
+        if self.hypers['TRPO']:
+            # actor有 新权重, 旧策略不变。
+            grads = self.get_actorGrad() # g
+
+            # 计算方向 v
+            v = self.conjugate_gradient(g=grads,max_iter=self.hypers['max_iter'])
+
+            # KL 散度, 若散度为0，说明权重完全一致。
+            # 线性搜索 查找 步长
+            success = self.line_search_with_kl(v,beta=self.hypers['beta'],max_iter=self.hypers['max_iter'])
+            if success:
+                self.actor_oldPolicy = copy.deepcopy(self.actor)
+                print("Line search success.")
+            else:
+                print("Line search failed, reverting to old parameters.")
+        elif self.hypers['VPG']:
+            self.get_actorGrad()
+            self.actor.optimizer.step()
         
         # 拉格朗日法 查找 步长
         self.batch.reset()

@@ -55,3 +55,32 @@ def plot_rewards(total_rewards,show_result=False):
             display.clear_output(wait=True)
         else:
             display.display(plt.gcf())
+
+def plot_performance(performance,show_result=False):
+    """
+    Plots the performance against total environment interactions.
+
+    Parameters:
+    - total_env_interacts: List or array of total environment interactions (x-axis).
+    - performance: List or array of performance metrics (y-axis).
+    - label: Label for the plot line.
+    """
+    plt.figure(1)
+    if show_result:
+        plt.title('Result')
+    else:
+        plt.clf()
+        plt.title('Training...')
+    plt.xlabel("TotalEnvInteracts")
+    plt.ylabel("Performance")
+    plt.legend(loc="best")
+    plt.grid(True)
+    # plt.show()
+    plt.plot(performance)
+    plt.pause(0.001)
+    if is_ipython:
+        if not show_result:
+            display.display(plt.gcf())
+            display.clear_output(wait=True)
+        else:
+            display.display(plt.gcf())
