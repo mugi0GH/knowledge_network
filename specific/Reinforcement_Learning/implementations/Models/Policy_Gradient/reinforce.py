@@ -27,6 +27,8 @@ class actor(nn.Module):
     def forward(self, state):
         if not isinstance(state, torch.Tensor):
             x = torch.tensor(state, dtype=torch.float32)
+        else:
+            x = state
         x = x.to(self.hypers['DEVICE'], dtype=torch.float32)  # 确保 x 在正确的设备上并且类型正确
         x = self.backbone(x)
         x = self.output(x)

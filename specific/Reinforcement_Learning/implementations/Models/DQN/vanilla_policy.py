@@ -19,6 +19,6 @@ class model(nn.Module):
                 module.training = False
     def forward(self,x):
         x = torch.relu(self.L1(torch.Tensor(x)))
-        x = torch.relu(self.L2(x))
-        # x = self.output(x)
+        # x = torch.relu(self.L2(x)) # 如果加了（负 reward）中完全失效。
+        x = self.output(x)
         return x

@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run with Pixi",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "console": "integratedTerminal"
+        }
+    ]
+}

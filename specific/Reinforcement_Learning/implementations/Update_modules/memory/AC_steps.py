@@ -12,7 +12,7 @@ class batch():
         self.state_shape = state_shape
 
         self.states = torch.empty(capacity,state_shape).to(DEVICE)
-        self.actions = torch.empty(capacity,1).to(DEVICE)
+        self.actions = torch.empty(capacity).to(DEVICE)
         self.next_states = torch.empty(capacity,state_shape).to(DEVICE)
         self.rewards = torch.empty(capacity,1).to(DEVICE)
         self.dones = torch.empty(capacity,1).to(DEVICE)
@@ -23,11 +23,11 @@ class batch():
 
     def push(self,state, action, next_state, reward, done):
         # 将数据放入相应的张量位置
-        self.states[self.ele_num] = torch.tensor(state, dtype=torch.float64).to(DEVICE)
+        self.states[self.ele_num] = torch.tensor(state, dtype=torch.float32).to(DEVICE)
         self.actions[self.ele_num] = torch.tensor(action, dtype=torch.int8).to(DEVICE)
-        self.next_states[self.ele_num] = torch.tensor(next_state, dtype=torch.float64).to(DEVICE)
+        self.next_states[self.ele_num] = torch.tensor(next_state, dtype=torch.float32).to(DEVICE)
         try:
-            self.rewards[self.ele_num] = torch.tensor(reward, dtype=torch.float64).to(DEVICE)
+            self.rewards[self.ele_num] = torch.tensor(reward, dtype=torch.float32).to(DEVICE)
         except:
             print('error',reward)
         self.dones[self.ele_num] = torch.tensor(done, dtype=torch.bool).to(DEVICE)

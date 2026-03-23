@@ -71,7 +71,7 @@ def main():
             td_error = reward + gamma * next_value * (1 - int(done)) - value
 
             # 更新 Critic（最小化 TD 误差的平方）
-            critic_loss = td_error.pow(2)
+            critic_loss = td_error.pow(2)/2
             critic_optimizer.zero_grad()
             critic_loss.backward()
             critic_optimizer.step()

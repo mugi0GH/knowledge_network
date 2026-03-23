@@ -35,14 +35,15 @@ class integrated_model():
         return action.item()  # 返回行为
     
     def get_actorGrad(self):
-        # 重新计算当前策略下的 log_probs
-        probs = self.actor(self.batch.states)
+        n = self.batch.ele_num
+        # 重新计算当前策略下的 log_probs（只用本回合实际步数）
+        probs = self.actor(self.batch.states[:n])
         action_dist = torch.distributions.Categorical(probs)
-        log_probs = action_dist.log_prob(self.batch.actions)
-        
+        log_probs = action_dist.log_prob(self.batch.actions[:n])
+
         # actor_loss = log(actor策略分布) * 优势函数值
-        # 计算损失
-        advantages = (self.batch.td_errors - self.batch.td_errors.mean()) / (self.batch.td_errors.std() + 1e-8)
+        td = self.batch.td_errors[:n].squeeze(-1)  # [n]
+        advantages = (td - td.mean()) / (td.std().clamp(min=0.1) + 1e-8)
         actor_loss = -(log_probs * advantages.detach()).mean()
 
         # actor_loss = -(log_probs * self.batch.td_errors.detach()).mean()
@@ -57,7 +58,7 @@ class integrated_model():
         
         # 计算损失：log_prob * 优势函数
         # actor_loss = -(log_probs * advantages.detach()).mean()
-        print(f"actor_loss: {actor_loss.item()}")
+        # print(f"actor_loss: {actor_loss.item()}")
         
         # 清空梯度
         self.actor.optimizer.zero_grad()  # 如果未定义 optimizer，会报错
@@ -71,14 +72,15 @@ class integrated_model():
         
         # 提取梯度并展平
         flat_grads = torch.cat([p.grad.view(-1) for p in self.actor.parameters()])
+        grad_norm = flat_grads.norm().item()
+        print(f"  actor_loss={actor_loss.item():.4f}  grad_norm={grad_norm:.4f}  td_mean={td.mean().item():.4f}  td_std={td.std().item():.4f}")
         return flat_grads
 
     def compute_kl_divergence(self):
+        n = self.batch.ele_num
         with torch.no_grad():
-            old_probs = self.actor_oldPolicy(self.batch.states)  # 旧策略的概率分布
-        
-        # 不使用 torch.no_grad()，以确保新策略计算时能够进行反向传播
-        new_probs = self.actor(self.batch.states)  # 新策略的概率分布
+            old_probs = self.actor_oldPolicy(self.batch.states[:n])
+        new_probs = self.actor(self.batch.states[:n])
         
         kl_divergence = torch.distributions.kl_divergence(
             torch.distributions.Categorical(probs=old_probs),
@@ -183,14 +185,17 @@ class integrated_model():
         # kl_grad = torch.autograd.grad(kl, params, create_graph=True, retain_graph= True)
         # 在 fisher_vector_product 中计算 KL 散度的梯度时，可能会遇到某些参数的梯度为 None。这是因为在计算梯度的过程中，可能有些参数未参与计算图。你可以通过设置 allow_unused=True 来解决这个问题，避免错误发生。
         kl_grad = torch.autograd.grad(kl, params, create_graph=True, retain_graph=True, allow_unused=True)
-        
-        # Step 2: 将梯度与向量 v 做内积, 在提取梯度时，跳过为 None 的梯度。
-        kl_grad_vector = torch.cat([g.view(-1) for g in kl_grad if g is not None])  # 将梯度展平为向量
+        # 用零向量替换 None，保持维度与 v 对齐（参数不影响 KL 时 Fisher 贡献为零）
+        kl_grad = [g if g is not None else torch.zeros_like(p) for g, p in zip(kl_grad, params)]
+
+        # Step 2: 将梯度与向量 v 做内积
+        kl_grad_vector = torch.cat([g.view(-1) for g in kl_grad])
         kl_grad_v = torch.dot(kl_grad_vector, v)  # 计算内积
-        
+
         # Step 3: 对内积结果再次求梯度，得到 Fv (Hessian-Vector Product)
-        fvp = torch.autograd.grad(kl_grad_v, params, retain_graph= True,allow_unused=True)
-        
+        fvp = torch.autograd.grad(kl_grad_v, params, retain_graph=True, allow_unused=True)
+        fvp = [g if g is not None else torch.zeros_like(p) for g, p in zip(fvp, params)]
+
         # 将结果拼接为一个向量
         fvp = torch.cat([g.contiguous().view(-1) for g in fvp])
 
@@ -306,35 +311,36 @@ class integrated_model():
 
 
     def optimize(self,state, action, next_state, reward,done):
-        # batch
-        if self.batch.__len__()< self.hypers['BATCH']-1:
-            
-            # 1. Critic 计算 TD 误差 （优势函数）
-            # td_error = self.critic.optimize(state, next_state, reward, done) # TD 误差 Gt - Vt
+        self.batch.push(state, action, next_state, reward,done)
 
-            # self.batch.push(state, action, next_state, reward,done,td_error) # 存入batch中
-            self.batch.push(state, action, next_state, reward,done) # 存入batch中
-            return
+        # 更新触发条件：按回合 or 按固定步数
+        if self.hypers.get("update_per_episode", False):
+            if not done:
+                return
+        else:
+            if self.batch.__len__() < self.hypers['BATCH'] - 1:
+                return
 
-        self.batch.push(state, action, next_state, reward,done) # 存入batch中
+        n = self.batch.__len__()
 
-        # 优化 Critic
-        self.batch.td_errors = self.critic.optimize(self.batch.states, self.batch.next_states, self.batch.rewards, self.batch.dones) # G_t
-
-        # 使用运行平均值和标准差来归一化奖励。这将有助于actor-critic网络稳定学习。
-        self.batch.rewards = (self.batch.rewards - self.batch.rewards.mean()) / (self.batch.rewards.std() + 1e-8)
+        # 优化 Critic（只用本回合实际步数）
+        # 注意：不在这里归一化 rewards，否则 CartPole 全 1 奖励会变成全 0，critic 无法学习
+        # advantage 归一化在 get_actorGrad() 里做
+        self.batch.td_errors[:n] = self.critic.optimize(self.batch.states[:n], self.batch.next_states[:n], self.batch.rewards[:n], self.batch.dones[:n])
 
 
         if self.hypers['TRPO']:
             # actor有 新权重, 旧策略不变。
             grads = self.get_actorGrad() # g
 
-            # 计算方向 v
-            v = self.conjugate_gradient(g=grads,max_iter=self.hypers['max_iter'])
+            # 计算自然梯度方向 v = F^{-1}g
+            v = self.conjugate_gradient(g=grads, max_iter=self.hypers['max_iter'])
 
-            # KL 散度, 若散度为0，说明权重完全一致。
-            # 线性搜索 查找 步长
-            success = self.line_search_with_kl(v,beta=self.hypers['beta'],max_iter=self.hypers['max_iter'])
+            # 计算正确的初始步长：alpha = sqrt(2δ / g^T v)
+            # g^T v = g^T F^{-1} g，保证第一步恰好满足 KL ≤ δ（二阶近似下）
+            gv = torch.dot(grads, v).clamp(min=1e-8)
+            initial_step = torch.sqrt(2 * self.hypers['delta'] / gv)
+            success = self.line_search_with_kl(initial_step * v, beta=self.hypers['beta'], max_iter=self.hypers['max_iter'])
             if success:
                 self.actor_oldPolicy = copy.deepcopy(self.actor)
                 print("Line search success.")
