@@ -1,3 +1,8 @@
+from torch import nn
+import torch
+import math
+from torch.autograd import Variable
+
 class PositionalEncoder(nn.Module):
     def __init__(self,d_model,max_seq_len = 80):
         super().__init__()

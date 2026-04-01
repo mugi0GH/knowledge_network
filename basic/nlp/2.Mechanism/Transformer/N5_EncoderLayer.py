@@ -1,5 +1,11 @@
+from torch import nn
+from N2_MultiHeadAttention import MultiHeadAttention
+from N3_FeedForward import FeedForward
+from N4_Resi_Norm import Norm
+from N1_PositionalEncoder import PositionalEncoder
+
 class EncoderLayer(nn.Module):
-    def __init__(self, d_model, heads, dropout=0.l):
+    def __init__(self, d_model, heads, dropout=0.1):
         super().__init__()
         self.norm_1 = Norm(d_model)
         self.norm_2 = Norm(d_model)
@@ -21,10 +27,10 @@ class EncoderLayer(nn.Module):
 
 class Encoder(nn.Module):
     def __init__(self,vocab_size,d_model,N,heads,dropout):
-        super.__init__()
+        super().__init__()
         self.N = N
         self.embed = Embedder(vocab_size,d_model)
-        self.pe = PositionalEncodewr(d_model,dropout = dropout)
+        self.pe = PositionalEncoder(d_model,dropout = dropout)
         self.layers = get_clones(EncoderLayer(d_model,heads,dropout),N)
         self.norm = Norm(d_model)
 

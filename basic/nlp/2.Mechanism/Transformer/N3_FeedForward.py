@@ -1,4 +1,7 @@
-class FeedForward(nn.module):
+from torch import nn
+import torch.nn.functional as F
+
+class FeedForward(nn.Module):
     
     
     def __init__(self,d_model,d_ff=2048,dropout=0.1):

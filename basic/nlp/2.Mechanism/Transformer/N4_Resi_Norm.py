@@ -1,3 +1,6 @@
+from torch import nn
+import torch
+
 class Norm(nn.Module):
     
     def __init__(self,d_model,eps = 1e-6):
