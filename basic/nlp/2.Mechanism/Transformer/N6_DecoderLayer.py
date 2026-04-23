@@ -1,4 +1,5 @@
 from torch import nn
+from N0_Utils import Embedder, get_clones
 from N2_MultiHeadAttention import MultiHeadAttention
 from N3_FeedForward import FeedForward
 from N4_Resi_Norm import Norm
@@ -7,7 +8,7 @@ from N1_PositionalEncoder import PositionalEncoder
 class DecoderLayer(nn.Module):
 
     def __init__(self, d_model, heads, dropout =0.1):
-        super.__init__()
+        super().__init__()
         self.norm_1 = Norm(d_model)
         self.norm_2 = Norm(d_model)
         self.norm_3 = Norm(d_model)
