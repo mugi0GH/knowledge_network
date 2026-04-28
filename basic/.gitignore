@@ -1,0 +1,9 @@
+# Compiled binaries
+*.o
+*.out
+example
+example_RAII
+
+# Python
+__pycache__/
+*.pyc

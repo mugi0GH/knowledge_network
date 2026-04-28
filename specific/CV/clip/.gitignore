@@ -1,0 +1,24 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info
+.pytest_cache
+.ipynb_checkpoints
+
+# CLIP notebooks - large test datasets
+CLIP/notebooks/ImageNetV2-matched-frequency/
+CLIP/notebooks/*.tar.gz
+
+# Disabled git repo (backup of original .git)
+CLIP/.git_disabled/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+thumbs.db
+.DS_Store

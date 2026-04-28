@@ -1,0 +1,29 @@
+[workspace]
+authors = ["office <office>"]
+channels = ["conda-forge"] # "https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge/",
+name = "llm_framework"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[system-requirements]
+cuda = "13.2"
+
+[tool.pixi.tasks]
+install-vllm = "pixi run uv pip install vllm --index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple --extra-index-url https://download.pytorch.org/whl/cu130"
+
+[tasks]
+vllm_test="pixi run python ./vllm_test/test_vllm.py"
+vllm_download="pixi run python ./vllm_test/model_downloader.py"
+
+[dependencies]
+python = "3.11.*"
+pip = ">=26.0.1,<27"
+modelscope = ">=1.36.2,<2"
+pytorch-gpu = ">=2.10.0,<3"
+torchvision = ">=0.26.0,<0.27"
+uv = ">=0.11.7,<0.12"
+libstdcxx-ng = ">=15.2.0,<16"
+
+[pypi-dependencies]
+# vllm = { path = "/tmp/vllm-0.19.1-cp38-abi3-manylinux_2_31_x86_64.whl" } # wget -c "https://files.pythonhosted.org/packages/78/20/f41216b79c87372a9d03175f36fa1411ee61059ce8c557d2691722ea4aae/vllm-0.19.1-cp38-abi3-manylinux_2_31_x86_64.whl" -O /tmp/vllm-0.19.1-cp38-abi3-manylinux_2_31_x86_64.whl
+flashinfer-cubin = "==0.6.6"
